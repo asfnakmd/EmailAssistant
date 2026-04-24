@@ -1,0 +1,88 @@
+# ============================================================================
+# application.yml — Spring Boot 应用配置文件
+# ============================================================================
+# 功能: 集中管理所有环境和第三方服务的配置参数。
+#
+# 编码建议:
+#   1. 敏感信息（API Key、密码等）不要写在此文件中，
+#      使用环境变量引用: ${OPENAI_API_KEY}
+#   2. 创建多个 profile 文件区分环境:
+#      - application-dev.yml  (开发环境)
+#      - application-prod.yml (生产环境)
+#      通过 spring.profiles.active=dev 激活
+#   3. 生产环境的 Redis、数据库等连接信息在各 profile 中覆盖
+#   4. 使用 @ConfigurationProperties 将配置映射为类型安全的 Java Record
+
+spring:
+  application:
+    name: email-assistant-java
+
+  # ==================== AI 配置 ====================
+  ai:
+    # --- OpenAI ---
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: gpt-4
+          temperature: 0.0
+
+    # --- 通义千问 (Spring AI Alibaba) ---
+    # alibaba:
+    #   api-key: ${DASHSCOPE_API_KEY}
+    #   chat:
+    #     options:
+    #       model: qwen-max
+
+    # --- Graph 工作流引擎 ---
+    # alibaba:
+    #   graph:
+    #     enabled: true
+    #     tracing:
+    #       enabled: true
+
+  # ==================== Redis 配置 ====================
+  # data:
+  #   redis:
+  #     host: localhost
+  #     port: 6379
+  #     timeout: 3000ms
+  #     lettuce:
+  #       pool:
+  #         max-active: 8
+  #         max-idle: 8
+  #         min-idle: 0
+
+# ==================== 自定义应用配置 ====================
+# app:
+#   # 需要人工审批的工具白名单
+#   approval-required-tools:
+#     - write_email
+#     - schedule_meeting
+#   # 审批超时时间（分钟）
+#   approval-timeout-minutes: 30
+#   # 记忆过期时间（天）
+#   memory-ttl-days: 30
+#   # 最大记忆检索条数
+#   memory-max-results: 5
+
+# ==================== 日志配置 ====================
+logging:
+  level:
+    com.emailassistant: DEBUG
+    org.springframework.ai.graph: INFO
+    org.springframework.data.redis: WARN
+
+# ==================== Actuator 监控 ====================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  tracing:
+    sampling:
+      probability: 1.0
+
+# ==================== 服务器配置 ====================
+server:
+  port: 8080
