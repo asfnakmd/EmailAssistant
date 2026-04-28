@@ -1,32 +1,21 @@
 # ============================================================================
-# application.yml — Spring Boot 应用主配置文件
-# ============================================================================
-# 功能：集中管理所有环境和第三方服务的配置参数。
-#
-# 编码建议：
-#   1. 敏感信息（API Key、密码等）使用环境变量引用: ${OPENAI_API_KEY}
-#   2. 多环境配置用 profile 文件区分:
-#      - application-dev.yml  (开发环境)
-#      - application-prod.yml (生产环境)
-#      通过 spring.profiles.active=dev 激活
+# application-template.yml — 配置模板（不含敏感信息）
+# 使用方式：复制为 application.yml 并填入实际值
 # ============================================================================
 
 spring:
   application:
     name: email-assistant-java
 
-  # ==================== AI 配置 ====================
   ai:
-    # --- DeepSeek (兼容 OpenAI API) ---
     openai:
-      api-key: ${DEEPSEEK_API_KEY}
+      api-key: ${DEEPSEEK_API_KEY}           # 替换为你的 DeepSeek API Key
       base-url: https://api.deepseek.com
       chat:
         options:
           model: deepseek-chat
           temperature: 0.0
 
-  # ==================== Redis 配置 ====================
   data:
     redis:
       host: localhost
@@ -38,12 +27,11 @@ spring:
           max-idle: 8
           min-idle: 0
 
-  # ==================== 邮件发送配置 ====================
   mail:
     host: smtp.qq.com
     port: 587
-    username: ${QQ_EMAIL:3322783302@qq.com}
-    password: ${QQ_EMAIL_PASSWORD}
+    username: ${QQ_EMAIL:3322783302@qq.com}  # 替换为你的 QQ 邮箱
+    password: ${QQ_EMAIL_PASSWORD}            # 替换为 QQ 邮箱授权码
     protocol: smtp
     properties:
       mail:
@@ -59,27 +47,16 @@ spring:
       port: 993
       protocol: imaps
 
-# ==================== 自定义应用配置 ====================
 app:
-  # 需要人工审批的工具白名单
   approval-required-tools: write_email,schedule_meeting
-  # 审批超时时间（分钟）
   approval-timeout-minutes: 30
-  # 记忆过期时间（天）
   memory-ttl-days: 30
-  # 最大记忆检索条数
   memory-max-results: 5
-
-  # ==================== 自动轮询配置 ====================
   auto-process:
-    # 是否启用定时自动抓取邮件（true=启用，false=仅手动触发）
     enabled: true
-    # 轮询间隔（毫秒），默认 5 分钟
     interval-ms: 300000
-    # 每轮最多处理的邮件数
     max-emails: 10
 
-# ==================== 日志配置 ====================
 logging:
   level:
     com.emailassistant: DEBUG
@@ -87,7 +64,6 @@ logging:
     org.springframework.data.redis: WARN
     org.springframework.web.socket: INFO
 
-# ==================== Actuator 监控 ====================
 management:
   endpoints:
     web:
@@ -106,6 +82,5 @@ management:
     tags:
       application: ${spring.application.name}
 
-# ==================== 服务器配置 ====================
 server:
   port: 8686
