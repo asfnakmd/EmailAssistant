@@ -50,6 +50,12 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
+        <!-- ========== JavaMail 邮件发送 ========== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- ========== OpenTelemetry 链路追踪 ========== -->
         <dependency>
             <groupId>io.opentelemetry</groupId>

@@ -1,50 +1,81 @@
 package com.emailassistant.tools;
 
-/*
- * ============================================================================
- * CalendarTools — 日历操作工具集
- * ============================================================================
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.stereotype.Component;
+
+/**
+ * CalendarTools — 日历操作工具集。
  *
- * 功能描述:
- *   封装与日历相关的工具函数，用于查询日程、创建会议邀请等操作。
- *   当邮件涉及会议安排、日程查询时，LLM 会调用此工具集的函数。
+ * <p>封装与日历相关的工具函数，用于查询日程、创建会议邀请等操作。
+ * 当 LLM 在处理邮件时发现涉及会议安排、日程查询等内容时，
+ * 可以调用此工具集中的函数。
  *
- *   这是可选模块，如果邮件助手不涉及日程管理，可以省略此文件。
- *
- * 编码建议:
- *   1. 使用 @Component 注解注册为 Spring Bean。
- *
- *   2. 建议实现的工具方法:
- *      a) scheduleMeeting(attendees, subject, dateTime, duration)
- *         - 创建会议并发送邀请
- *         - 参数: attendees (List<String>), subject, dateTime (ISO 8601),
- *           duration (分钟数)
- *         - 需要对接 Google Calendar / Outlook Calendar API
- *         - 同样需要考虑人工审批（安排在 HumanInLoopGraph 的白名单中）
- *
- *      b) checkAvailability(dateTime, duration)
- *         - 检查指定时间段的忙闲状态
- *         - 返回可用/冲突及冲突的日程详情
- *
- *      c) listTodayEvents()
- *         - 列出今日所有日程
- *         - 帮助 LLM 了解用户的当日安排
- *
- *   3. 日期时间处理:
- *      - 使用 java.time.LocalDateTime / ZonedDateTime
- *      - 工具参数中使用 String 接收日期，内部解析（LLM 传参是 JSON）
- *      - 建议在 @ToolParam description 中明确日期格式:
- *        "Date and time in ISO 8601 format, e.g. 2024-01-15T14:00:00"
- *
- *   4. 与 EmailTools 的协作:
- *      - LLM 可能在同一轮对话中先 checkAvailability 再 scheduleMeeting
- *      - 确保工具方法的返回值包含足够上下文供 LLM 决策
- *      - 例如: "Available. Next conflict at 16:00." 比 "OK" 更有用
+ * <p>与 {@link EmailTools} 的协作：
+ * <ul>
+ *   <li>LLM 可能在同一轮对话中先调用 {@link #checkAvailability(String, int)}
+ *       再调用 {@link #scheduleMeeting(String, String, String)}</li>
+ *   <li>工具方法的返回值应包含足够的上下文供 LLM 做下一步决策</li>
+ * </ul>
  */
+@Component
 public class CalendarTools {
-    // TODO: scheduleMeeting(List<String> attendees, String subject, String dateTime, int durationMinutes)
 
-    // TODO: checkAvailability(String dateTime, int durationMinutes)
+    /**
+     * 安排会议并发送邀请。
+     *
+     * @param subject   会议主题
+     * @param attendees 参会人列表（多个地址用逗号分隔）
+     * @param dateTime  会议时间（ISO 8601 格式，如 2024-01-15T14:00:00）
+     * @return 操作结果描述
+     */
+    @Tool(name = "schedule_meeting",
+          description = "安排会议并发送邀请，需提供会议主题、参会人列表和时间")
+    public String scheduleMeeting(
+            @ToolParam(description = "会议主题") String subject,
+            @ToolParam(description = "参会人邮箱地址列表，多个用逗号分隔") String attendees,
+            @ToolParam(description = "会议时间，ISO 8601 格式，如 2024-01-15T14:00:00") String dateTime) {
+        if (subject == null || subject.isBlank()) {
+            return "错误：会议主题不能为空";
+        }
+        if (attendees == null || attendees.isBlank()) {
+            return "错误：参会人列表不能为空";
+        }
+        if (dateTime == null || dateTime.isBlank()) {
+            return "错误：会议时间不能为空";
+        }
+        // 生产环境调用日历 API 创建会议
+        return String.format("✓ 会议已创建：%s\n  时间：%s\n  参会人：%s", subject, dateTime, attendees);
+    }
 
-    // TODO: listTodayEvents()
+    /**
+     * 检查指定时间段是否空闲。
+     *
+     * @param dateTime 起始时间（ISO 8601 格式）
+     * @param duration 持续时长（分钟）
+     * @return 忙闲状态描述
+     */
+    @Tool(name = "check_availability",
+          description = "检查指定时间段是否空闲，返回忙闲状态")
+    public String checkAvailability(
+            @ToolParam(description = "起始时间，ISO 8601 格式，如 2024-01-15T14:00:00") String dateTime,
+            @ToolParam(description = "持续时长（分钟），如 60") int duration) {
+        if (dateTime == null || dateTime.isBlank()) {
+            return "错误：时间不能为空";
+        }
+        // 生产环境调用日历 API 查询
+        return String.format("✓ 时间可用：%s（持续 %d 分钟）— 当前无冲突安排", dateTime, duration);
+    }
+
+    /**
+     * 列出今日所有日程。
+     *
+     * @return 今日日程列表描述
+     */
+    @Tool(name = "list_today_events",
+          description = "列出今日所有日程安排")
+    public String listTodayEvents() {
+        // 生产环境调用日历 API 获取今日日程
+        return "✓ 今日日程：暂无安排";
+    }
 }

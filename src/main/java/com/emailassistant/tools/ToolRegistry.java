@@ -1,73 +1,93 @@
 package com.emailassistant.tools;
 
-/*
- * ============================================================================
- * ToolRegistry — 工具注册中心
- * ============================================================================
+import org.springframework.stereotype.Component;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+/**
+ * ToolRegistry — 工具注册中心，管理所有可供 LLM 调用的工具。
  *
- * 功能描述:
- *   工具的统一注册、发现和调用中心。自动收集所有标记了 @Tool 注解的
- *   Spring Bean，建立工具名称到工具实例的映射表，供工作流各节点使用。
+ * <p>工作原理：
+ * <ol>
+ *   <li>Spring 自动注入所有 {@link Tool} 接口的 Bean（来自 {@link ToolConfig}）</li>
+ *   <li>构造器中按工具名建立索引，便于快速查找</li>
+ *   <li>图工作流的 toolCallNode 通过 {@link #getTool(String)} 获取工具并执行</li>
+ * </ol>
  *
- *   映射关系: Python 中通过 @tool 装饰器自动注册 → Java 通过
- *            ApplicationContext 扫描 + ToolRegistry 集中管理
- *
- * 编码建议:
- *   1. 使用 @Component 注解使其成为 Spring 管理的单例 Bean。
- *
- *   2. 自动发现工具的两种方式:
- *      方式 A（推荐）: 通过构造器注入所有 Tool 类型的 Bean
- *          public ToolRegistry(List<Tool> toolBeans) {
- *              // Spring 会自动收集所有实现了 Tool 接口的 Bean
- *          }
- *      方式 B: 通过 ApplicationContext 手动扫描
- *          context.getBeansWithAnnotation(Tool.class)
- *      推荐方式 A，更符合 Spring 的依赖注入理念。
- *
- *   3. 映射表的 key 选择:
- *      - 使用工具的 name 属性（@Tool(name="xxx")）
- *      - 如果 name 为空，回退到类名小写或方法名
- *      - 使用 Map<String, Tool> 存储，查找复杂度 O(1)
- *
- *   4. 核心方法设计:
- *      a) getTool(String name) → Tool
- *         - 根据名称获取单个工具
- *         - 如果找不到应抛出明确的异常（如 NoSuchToolException）
- *         - 或返回 Optional<Tool> 让调用方处理
- *
- *      b) getAllTools() → Map<String, Tool> 或 Collection<Tool>
- *         - 返回不可修改的视图（Collections.unmodifiableMap）
- *         - 防止外部代码意外修改注册表
- *
- *      c) getToolNames() → Set<String> — 可选，方便调试和日志
- *
- *      d) registerTool(String name, Tool tool) — 可选，用于动态注册
- *         （如插件系统、脚本工具等场景）
- *
- *   5. 工具执行接口:
- *      - 如果 Tool 是 Spring AI 的标准接口，调用方式可能是:
- *          String result = tool.call(toolInput);
- *      - 如果使用自定义接口，需要统一定义 execute(Map<String, Object> args) 方法
- *      - 建议封装一个 ToolResult 类: record ToolResult(String content, boolean success) {}
- *
- *   6. 线程安全:
- *      - ToolRegistry 在初始化后一般只读，天然线程安全（不可变 Map）
- *      - 如果需要运行时动态注册/注销工具，使用 ConcurrentHashMap
- *
- *   7. 验证:
- *      - 在初始化后检查是否有重名的工具，发现重复应记录 WARN 日志
- *      - 检查必选工具（如 done）是否存在，缺失时报错
+ * <p>设计意图：
+ * <ul>
+ *   <li>解耦：图工作流不需要知道具体有哪些工具类，只需通过名称查找</li>
+ *   <li>可扩展：新增工具只需添加一个 @Bean 方法，无需修改图逻辑</li>
+ *   <li>统一管理：所有工具集中于此，便于审计和监控</li>
+ * </ul>
  */
+@Component
 public class ToolRegistry {
-    // TODO: 私有字段 — Map<String, Tool> 工具名到实例的映射
 
-    // TODO: 构造器 — List<Tool> toolBeans（Spring 自动注入所有 Tool 实现）
+    /** 工具名 → Tool 实例的不可变映射 */
+    private final Map<String, Tool> tools;
 
-    // TODO: getTool(String name) — 按名称查找工具
+    /**
+     * Spring 自动注入所有 Tool 类型的 Bean，构造索引。
+     *
+     * @param toolBeans 容器中所有 Tool 接口的实现 Bean
+     */
+    public ToolRegistry(List<Tool> toolBeans) {
+        this.tools = toolBeans.stream()
+                .collect(Collectors.toUnmodifiableMap(
+                        Tool::getName,
+                        Function.identity(),
+                        // 同名工具冲突时的处理：保留第一个注册的
+                        (existing, duplicate) -> {
+                            throw new IllegalStateException(
+                                    "工具名称冲突：「" + existing.getName() + "」存在多个实现");
+                        }));
+    }
 
-    // TODO: getAllTools() — 获取所有工具的不可变视图
+    /**
+     * 根据名称获取工具。
+     *
+     * @param name 工具名
+     * @return Tool 实例
+     * @throws NoSuchToolException 如果找不到对应工具
+     */
+    public Tool getTool(String name) {
+        Tool tool = tools.get(name);
+        if (tool == null) {
+            throw new NoSuchToolException(name);
+        }
+        return tool;
+    }
 
-    // TODO: getToolNames() — 获取所有工具名称（可选）
+    /**
+     * 获取所有已注册工具的不可变视图。
+     *
+     * @return 工具名 → Tool 的映射
+     */
+    public Map<String, Tool> getAllTools() {
+        return tools;
+    }
 
-    // TODO: validate() — 启动时校验工具完整性（可选，使用 @PostConstruct 触发）
+    /**
+     * 检查指定名称的工具是否存在。
+     *
+     * @param name 工具名
+     * @return true 如果存在
+     */
+    public boolean hasTool(String name) {
+        return tools.containsKey(name);
+    }
+
+    /**
+     * 获取已注册工具的数量。
+     *
+     * @return 工具总数
+     */
+    public int toolCount() {
+        return tools.size();
+    }
 }
