@@ -1,11 +1,13 @@
 package com.emailassistant.controller;
 
+import com.emailassistant.email.EmailReceiverService;
 import com.emailassistant.evaluation.EvaluationService;
 import com.emailassistant.graph.EmailAssistantGraph;
 import com.emailassistant.graph.HumanInLoopGraph;
 import com.emailassistant.graph.MemoryEnabledGraph;
 import com.emailassistant.state.AgentState;
 import com.emailassistant.state.ChatMessage;
+import com.emailassistant.state.EmailData;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.slf4j.Logger;
@@ -17,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -48,17 +52,20 @@ public class EmailAssistantController {
     private final MemoryEnabledGraph memoryGraph;
     private final EvaluationService evaluationService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final EmailReceiverService emailReceiverService;
 
     public EmailAssistantController(EmailAssistantGraph emailGraph,
                                     HumanInLoopGraph hitlGraph,
                                     MemoryEnabledGraph memoryGraph,
                                     EvaluationService evaluationService,
-                                    SimpMessagingTemplate messagingTemplate) {
+                                    SimpMessagingTemplate messagingTemplate,
+                                    EmailReceiverService emailReceiverService) {
         this.emailGraph = emailGraph;
         this.hitlGraph = hitlGraph;
         this.memoryGraph = memoryGraph;
         this.evaluationService = evaluationService;
         this.messagingTemplate = messagingTemplate;
+        this.emailReceiverService = emailReceiverService;
     }
 
     // ==================== REST API：基础版 ====================
@@ -206,6 +213,114 @@ public class EmailAssistantController {
     // ==================== WebSocket 消息处理 ====================
 
     /**
+     * 接收前端通过 WebSocket 提交的审批决策。<｜end▁of▁thinking｜>
+
+    // ==================== 邮件接收 API ====================
+
+    /**
+     * 获取收件箱中的未读邮件列表。
+     */
+    @GetMapping("/inbox")
+    public ResponseEntity<List<InboxEmailResponse>> listInbox() {
+        log.info("获取未读邮件列表");
+        List<EmailData> emails = emailReceiverService.fetchUnreadEmails();
+        List<InboxEmailResponse> response = emails.stream()
+                .map(e -> new InboxEmailResponse(e.id(), e.from(), e.subject(),
+                        e.body().length() > 200 ? e.body().substring(0, 200) + "..." : e.body(),
+                        e.receivedAt(), e.priority()))
+                .toList();
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取收件箱中最近的指定数量邮件。
+     */
+    @GetMapping("/inbox/recent")
+    public ResponseEntity<List<InboxEmailResponse>> listRecent(
+            @RequestParam(defaultValue = "10") int count) {
+        log.info("获取最近 {} 封邮件", count);
+        List<EmailData> emails = emailReceiverService.fetchRecentEmails(count);
+        List<InboxEmailResponse> response = emails.stream()
+                .map(e -> new InboxEmailResponse(e.id(), e.from(), e.subject(),
+                        e.body().length() > 200 ? e.body().substring(0, 200) + "..." : e.body(),
+                        e.receivedAt(), e.priority()))
+                .toList();
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取未读邮件并通过基础工作流自动处理。
+     */
+    @PostMapping("/fetch-and-process")
+    public ResponseEntity<BatchProcessResponse> fetchAndProcess() {
+        Instant start = Instant.now();
+        log.info("开始自动获取并处理未读邮件");
+
+        List<EmailData> emails = emailReceiverService.fetchUnreadEmails();
+        List<EmailProcessResult> results = new ArrayList<>();
+
+        for (EmailData email : emails) {
+            try {
+                AgentState initialState = email.toAgentState();
+                AgentState result = emailGraph.buildEmailAssistant().run(initialState);
+                String response = extractLastResponse(result.messages());
+                results.add(new EmailProcessResult(
+                        email.id(), email.from(), email.subject(),
+                        result.classificationDecision() != null
+                                ? result.classificationDecision().name() : "UNKNOWN",
+                        response, Duration.between(start, Instant.now()).toMillis()));
+            } catch (Exception e) {
+                log.warn("处理邮件 {} 失败: {}", email.id(), e.getMessage());
+                results.add(new EmailProcessResult(
+                        email.id(), email.from(), email.subject(),
+                        "ERROR", "处理失败: " + e.getMessage(),
+                        Duration.between(start, Instant.now()).toMillis()));
+            }
+        }
+
+        long totalMs = Duration.between(start, Instant.now()).toMillis();
+        log.info("批量处理完成: {}/{} 封", results.size(), emails.size());
+        return ResponseEntity.ok(new BatchProcessResponse(results.size(), totalMs, results));
+    }
+
+    /**
+     * 获取未读邮件并通过记忆增强版工作流自动处理。
+     */
+    @PostMapping("/fetch-and-process/memory")
+    public ResponseEntity<BatchProcessResponse> fetchAndProcessWithMemory() {
+        Instant start = Instant.now();
+        log.info("开始自动获取并处理未读邮件（记忆增强版）");
+
+        List<EmailData> emails = emailReceiverService.fetchUnreadEmails();
+        List<EmailProcessResult> results = new ArrayList<>();
+
+        for (EmailData email : emails) {
+            try {
+                AgentState initialState = email.toAgentState();
+                AgentState result = memoryGraph.buildMemoryEnabledGraph().run(initialState);
+                String response = extractLastResponse(result.messages());
+                results.add(new EmailProcessResult(
+                        email.id(), email.from(), email.subject(),
+                        result.classificationDecision() != null
+                                ? result.classificationDecision().name() : "UNKNOWN",
+                        response, Duration.between(start, Instant.now()).toMillis()));
+            } catch (Exception e) {
+                log.warn("处理邮件 {} 失败: {}", email.id(), e.getMessage());
+                results.add(new EmailProcessResult(
+                        email.id(), email.from(), email.subject(),
+                        "ERROR", "处理失败: " + e.getMessage(),
+                        Duration.between(start, Instant.now()).toMillis()));
+            }
+        }
+
+        long totalMs = Duration.between(start, Instant.now()).toMillis();
+        log.info("批量处理完成（记忆版）: {}/{} 封", results.size(), emails.size());
+        return ResponseEntity.ok(new BatchProcessResponse(results.size(), totalMs, results));
+    }
+
+    // ==================== WebSocket 消息处理 ====================
+
+    /**
      * 接收前端通过 WebSocket 提交的审批决策。
      *
      * <p>客户端发送到 /app/agent/approval 的消息会路由到此方法。
@@ -293,5 +408,38 @@ public class EmailAssistantController {
             @NotBlank String toolCallId,
             boolean approved,
             String comment
+    ) {}
+
+    /**
+     * 收件箱邮件列表响应体。
+     */
+    public record InboxEmailResponse(
+            String id,
+            String from,
+            String subject,
+            String bodyPreview,
+            LocalDateTime receivedAt,
+            EmailData.Priority priority
+    ) {}
+
+    /**
+     * 单封邮件的处理结果。
+     */
+    public record EmailProcessResult(
+            String emailId,
+            String from,
+            String subject,
+            String classification,
+            String response,
+            long processingTimeMs
+    ) {}
+
+    /**
+     * 批量处理响应体。
+     */
+    public record BatchProcessResponse(
+            int processedCount,
+            long totalTimeMs,
+            List<EmailProcessResult> results
     ) {}
 }
